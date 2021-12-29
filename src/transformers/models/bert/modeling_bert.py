@@ -321,8 +321,8 @@ class BertSelfAttention(nn.Module):
 
         self.is_decoder = config.is_decoder
         
-        self.nested_ckpt = False
-        self.gg_atten = True
+        self.checkpoint = config.nested_checkpoint
+        self.efficient_softmax = config.efficient_softmax
 
     def transpose_for_scores(self, x):
         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
@@ -376,7 +376,7 @@ class BertSelfAttention(nn.Module):
             # if encoder bi-directional self-attention `past_key_value` is always `None`
             past_key_value = (key_layer, value_layer)
 
-        if not self.gg_atten:
+        if not self.efficient_softmax:
             def ref_impl(query_layer, key_layer, value_layer):
                 # Take the dot product between "query" and "key" to get the raw attention scores.
                 attention_scores = torch.matmul(query_layer, key_layer.transpose(-1, -2))
@@ -416,13 +416,13 @@ class BertSelfAttention(nn.Module):
                 context_layer = torch.matmul(attention_probs, value_layer)
                 return context_layer
 
-            if self.nested_ckpt:
+            if self.checkpoint:
                 context_layer = torch.utils.checkpoint.checkpoint(ref_impl, query_layer, key_layer, value_layer)
             else:
                 context_layer = ref_impl(query_layer, key_layer, value_layer)
         else:
             context_layer = self_atten(query_layer, key_layer, value_layer, 
-                    q_chunk_size=128, k_chunk_size=128, use_checkpoint=True)
+                    q_chunk_size=256, k_chunk_size=256, use_checkpoint=True)
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
         new_context_layer_shape = context_layer.size()[:-2] + (self.all_head_size,)

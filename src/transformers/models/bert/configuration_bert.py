@@ -136,6 +136,8 @@ class BertConfig(PretrainedConfig):
         position_embedding_type="absolute",
         use_cache=True,
         classifier_dropout=None,
+        efficient_softmax = True,
+        nested_checkpoint = False,
         **kwargs
     ):
         super().__init__(pad_token_id=pad_token_id, **kwargs)
@@ -156,6 +158,8 @@ class BertConfig(PretrainedConfig):
         self.use_cache = use_cache
         self.classifier_dropout = classifier_dropout
 
+        self.efficient_softmax = efficient_softmax
+        self.nested_checkpoint = nested_checkpoint
 
 class BertOnnxConfig(OnnxConfig):
     @property
