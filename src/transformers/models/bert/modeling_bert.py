@@ -223,12 +223,13 @@ class BertEmbeddings(nn.Module):
         return embeddings
 
 
-def self_atten(query_layer, key_layer, value_layer, 
+def self_atten(dropout_p, query_layer, key_layer, value_layer, 
                 q_chunk_size, k_chunk_size, use_checkpoint=True):
     batch_size, num_heads, seq_len, q_features = query_layer.shape
     batch_size, num_heads, seq_len, k_features = key_layer.shape
     batch_size, num_heads, seq_len, v_features = value_layer.shape
     q_chunk_size = min(q_chunk_size, seq_len)
+    dropout = nn.Dropout(dropout_p)
 
     def _query_chunk_attention(query, key, value):
         batch_size, num_heads, num_kv, k_features = key.shape
@@ -243,6 +244,7 @@ def self_atten(query_layer, key_layer, value_layer,
             max_score = max_score.detach()
             exp_weights = torch.exp(attn_weights - max_score)
             exp_values = torch.einsum('bhvf,bhqv->bhqf', value, exp_weights)
+            exp_values = dropout(exp_values)
             return (exp_values, exp_weights.sum(axis=-1), max_score.squeeze())
 
         chunk_values = None
@@ -323,6 +325,7 @@ class BertSelfAttention(nn.Module):
         
         self.checkpoint = config.nested_checkpoint
         self.efficient_softmax = config.efficient_softmax
+        self.dropout_p = config.attention_probs_dropout_prob
 
     def transpose_for_scores(self, x):
         new_x_shape = x.size()[:-1] + (self.num_attention_heads, self.attention_head_size)
@@ -407,7 +410,7 @@ class BertSelfAttention(nn.Module):
 
                 # This is actually dropping out entire tokens to attend to, which might
                 # seem a bit unusual, but is taken from the original Transformer paper.
-                # attention_probs = self.dropout(attention_probs)
+                attention_probs = self.dropout(attention_probs)
 
                 # Mask heads if we want to
                 if head_mask is not None:
@@ -421,7 +424,7 @@ class BertSelfAttention(nn.Module):
             else:
                 context_layer = ref_impl(query_layer, key_layer, value_layer)
         else:
-            context_layer = self_atten(query_layer, key_layer, value_layer, 
+            context_layer = self_atten(self.dropout_p, query_layer, key_layer, value_layer, 
                     q_chunk_size=256, k_chunk_size=256, use_checkpoint=True)
 
         context_layer = context_layer.permute(0, 2, 1, 3).contiguous()
